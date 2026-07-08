@@ -20,7 +20,7 @@ Agrega un panel flotante que analiza tu equipo en tiempo real: cobertura ofensiv
 ## Instalacion
 
 1. Instala [Tampermonkey](https://www.tampermonkey.net/).
-2. Crea un script nuevo y pega el contenido de [`pokelike-team-analyzer.user.js`](pokelike-team-analyzer.user.js).
+2. Crea un script nuevo y pega el contenido de [`pokelike_team_analyzer.js`](pokelike_team_analyzer.js).
 3. Entra a pokelike.xyz - el panel aparece arriba a la derecha (se puede arrastrar y colapsar).
 
 Funciona bien junto a los otros userscripts de Pokelike (Weakness Panel, Fairy Fix, Evolution Level, Move Tier Hover).
