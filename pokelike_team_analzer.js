@@ -568,13 +568,25 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
       }
     });
 
-    // Restaurar posición guardada
+    // Mantiene al menos un pedazo del header visible dentro de la ventana.
+    function clampPos(x, y) {
+      const margin = 40;
+      const maxX = window.innerWidth  - margin;
+      const maxY = window.innerHeight - margin;
+      return {
+        x: Math.min(Math.max(x, margin - panel.offsetWidth), maxX),
+        y: Math.min(Math.max(y, 0), maxY),
+      };
+    }
+
+    // Restaurar posición guardada (con clamp por si cambió el tamaño de ventana)
     try {
       const saved = JSON.parse(localStorage.getItem('_pca_pos') || 'null');
       if (saved) {
+        const pos = clampPos(saved.x, saved.y);
         panel.style.right = 'auto';
-        panel.style.left  = saved.x + 'px';
-        panel.style.top   = saved.y + 'px';
+        panel.style.left  = pos.x + 'px';
+        panel.style.top   = pos.y + 'px';
       }
     } catch (_) {}
 
@@ -592,14 +604,21 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
     hdr.addEventListener('mousedown', e => {
       if (e.target.tagName === 'BUTTON') return;
       drag = true;
+      // Fija left/top a la posición visual actual ANTES de tocar right,
+      // si no el navegador recoloca el panel al borrar right y el offset
+      // calculado con el valor viejo queda mal (el panel "salta").
+      const rect = panel.getBoundingClientRect();
+      panel.style.left  = rect.left + 'px';
+      panel.style.top   = rect.top + 'px';
       panel.style.right = 'auto';
-      ox = e.clientX - panel.offsetLeft;
-      oy = e.clientY - panel.offsetTop;
+      ox = e.clientX - rect.left;
+      oy = e.clientY - rect.top;
     });
     document.addEventListener('mousemove', e => {
       if (!drag) return;
-      panel.style.left = (e.clientX - ox) + 'px';
-      panel.style.top  = (e.clientY - oy) + 'px';
+      const pos = clampPos(e.clientX - ox, e.clientY - oy);
+      panel.style.left = pos.x + 'px';
+      panel.style.top  = pos.y + 'px';
     });
     document.addEventListener('mouseup', () => {
       if (!drag) return;
