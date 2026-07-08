@@ -142,6 +142,16 @@
       {n:'Pryce',    t:'Ice',      p:[['Seel',['Water']],['Dewgong',['Water','Ice']],['Piloswine',['Ice','Ground']]]},
       {n:'Clair',    t:'Dragon',   p:[['Dragonair',['Dragon']],['Dragonair',['Dragon']],['Dragonair',['Dragon']],['Kingdra',['Water','Dragon']]]},
     ],
+    3: [
+      {n:'Roxanne',    t:'Rock',     p:[['Geodude',['Rock','Ground']],['Geodude',['Rock','Ground']],['Nosepass',['Rock']]]},
+      {n:'Brawly',     t:'Fighting', p:[['Machop',['Fighting']],['Meditite',['Fighting','Psychic']],['Makuhita',['Fighting']]]},
+      {n:'Wattson',    t:'Electric', p:[['Voltorb',['Electric']],['Electrike',['Electric']],['Magneton',['Electric','Steel']],['Manectric',['Electric']]]},
+      {n:'Flannery',   t:'Fire',     p:[['Numel',['Fire','Ground']],['Slugma',['Fire']],['Camerupt',['Fire','Ground']],['Torkoal',['Fire']]]},
+      {n:'Norman',     t:'Normal',   p:[['Slaking',['Normal']],['Spinda',['Normal']],['Vigoroth',['Normal']],['Slaking',['Normal']]]},
+      {n:'Winona',     t:'Flying',   p:[['Swablu',['Normal','Flying']],['Tropius',['Grass','Flying']],['Pelipper',['Water','Flying']],['Skarmory',['Steel','Flying']],['Altaria',['Dragon','Flying']]]},
+      {n:'Tate&Liza',  t:'Psychic',  p:[['Solrock',['Rock','Psychic']],['Lunatone',['Rock','Psychic']],['Claydol',['Ground','Psychic']]]},
+      {n:'Wallace',    t:'Water',    p:[['Luvdisc',['Water']],['Whiscash',['Water','Ground']],['Sealeo',['Ice','Water']],['Seaking',['Water']],['Milotic',['Water']]]},
+    ],
   };
 
   // DATOS DE ESPECIE (para modo Endless)
