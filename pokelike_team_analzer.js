@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pokelike Team Analyzer
 // @namespace    https://pokelike.xyz/
-// @version      1.14.0
+// @version      1.14.1
 // @description  Floating panel: team coverage, weaknesses, boss preview and catch/swap helpers
 // @author       Bruno
 // @match        https://pokelike.xyz/*
@@ -293,8 +293,16 @@
 
       // Cobertura: ofensivo - usa los ataques reales, y guarda cuál da el hit.
       allTypes.forEach(def => {
-        let best = 1, by = null;
-        attackTypes.forEach(a => { const m = eff(chart, a, [def]); if (m > best) { best = m; by = a; } });
+        // Guardamos TODOS los ataques que empatan en el mejor multiplicador,
+        // no solo el primero (si no, un empate x2 entre dos tipos ocultaba
+        // por completo la cobertura del segundo, ej: Poison vs Grass cuando
+        // ya había Fire, o Dragon vs Dragon cuando ya había Ice).
+        let best = 1, by = [];
+        attackTypes.forEach(a => {
+          const m = eff(chart, a, [def]);
+          if (m > best) { best = m; by = [a]; }
+          else if (m === best && m >= 2) { by.push(a); }
+        });
         if (best >= 2) coverage.push({ type: def, best, by });
       });
       coverage.sort((a, b) => b.best - a.best);
@@ -452,7 +460,7 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
         h += `<div class="pca-dim">No SE advantage</div>`;
       } else {
         const byAtk = {};
-        coverage.forEach(c => { (byAtk[c.by] = byAtk[c.by] || []).push(c); });
+        coverage.forEach(c => { c.by.forEach(a => { (byAtk[a] = byAtk[a] || []).push(c); }); });
         Object.entries(byAtk).forEach(([atk, list]) => {
           list.sort((a, b) => b.best - a.best);
           const targets = list.map(c =>
