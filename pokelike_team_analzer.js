@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pokelike Team Analyzer
 // @namespace    https://pokelike.xyz/
-// @version      1.14.1
+// @version      1.23.0
 // @description  Floating panel: team coverage, weaknesses, boss preview and catch/swap helpers
 // @author       Bruno
 // @match        https://pokelike.xyz/*
@@ -99,6 +99,55 @@
     return null;
   }
 
+  // Nombre del item desde un valor que puede venir como string u objeto {name}.
+  function normItem(v) {
+    if (!v) return null;
+    if (typeof v === 'string') return v.trim() || null;
+    if (typeof v === 'object') return (v.name || v.id || '').toString().trim() || null;
+    return null;
+  }
+
+  // Item equipado leído del team-bar (mapa/menú principal): busca el slot cuyo
+  // nombre coincide y lee el alt del ícono del item.
+  function getItemFromDOM(name) {
+    const bar = document.getElementById('team-bar');
+    if (!bar || !name) return null;
+    for (const slot of bar.querySelectorAll('.team-slot')) {
+      const nm = slot.querySelector('.team-slot-name');
+      if (!nm || nm.textContent.trim().toLowerCase() !== String(name).toLowerCase()) continue;
+      const img = slot.querySelector('.team-slot-item img');
+      if (img && img.alt) return img.alt.trim();
+    }
+    return null;
+  }
+  function getTeamFromDOM() {
+    const bar = document.getElementById('team-bar');
+    if (!bar) return null;
+    const slots = bar.querySelectorAll('.team-slot');
+    if (!slots.length) return null;
+    return Array.from(slots).map(slot => {
+      const name  = slot.querySelector('.team-slot-name')?.textContent.trim() || '?';
+      const lvTxt = slot.querySelector('.team-slot-lv')?.textContent.trim() || '';
+      const level = parseInt(lvTxt.replace(/\D/g, ''), 10) || 1;
+      const fillEl = slot.querySelector('.hp-bar-fill');
+      const hpPct = fillEl ? (parseFloat(fillEl.style.width) || 0) : 100; // "63%" -> 63
+      const itemImg = slot.querySelector('.team-slot-item img');
+      const item = itemImg && itemImg.alt ? itemImg.alt.trim() : null;
+      return { name, level, hpPct, item };
+    });
+  }.
+  function getSpeciesTypesByName(name) {
+    const dex = window.__POKEDEX__;
+    if (!dex || !name) return null;
+    const entries = Array.isArray(dex) ? dex : Object.values(dex);
+    const hit = entries.find(e => e && (e.name || e.species || '').toString().toLowerCase() === name.toLowerCase());
+    if (!hit) return null;
+    if (hit.types?.length) return hit.types;
+    if (Array.isArray(hit.type)) return hit.type;
+    if (hit.type1) return hit.type2 ? [hit.type1, hit.type2] : [hit.type1];
+    return null;
+  }
+
   // El save queda viejo entre guardadas. Enganchamos renderPokemonCard para guardar los objetos vivos por referencia y ver move/HP al instante.
   const LIVE_MONS = new Map(); // _uid -> pokémon vivo
   let liveHookInstalled = false;
@@ -153,6 +202,176 @@
       {n:'Wallace',    t:'Water',    p:[['Luvdisc',['Water']],['Whiscash',['Water','Ground']],['Sealeo',['Ice','Water']],['Seaking',['Water']],['Milotic',['Water']]]},
     ],
   };
+  const ELITE4 = {
+    1: [ // Kanto
+      {n:'Lorelei', t:'Ice',      p:[['Dewgong',['Water','Ice'],54],['Cloyster',['Water','Ice'],53],['Slowbro',['Water','Psychic'],54],['Jynx',['Ice','Psychic'],56],['Lapras',['Water','Ice'],56]]},
+      {n:'Bruno',   t:'Fighting', p:[['Onix',['Rock','Ground'],53],['Hitmonchan',['Fighting'],55],['Hitmonlee',['Fighting'],55],['Onix',['Rock','Ground'],54],['Machamp',['Fighting'],58]]},
+      {n:'Agatha',  t:'Ghost',    p:[['Gengar',['Ghost','Poison'],54],['Golbat',['Poison','Flying'],54],['Haunter',['Ghost','Poison'],56],['Golbat',['Poison','Flying'],56],['Gengar',['Ghost','Poison'],58]]},
+      {n:'Lance',   t:'Dragon',   p:[['Gyarados',['Water','Flying'],56],['Dragonite',['Dragon','Flying'],56],['Dragonair',['Dragon'],58],['Dragonair',['Dragon'],60],['Dragonite',['Dragon','Flying'],62]]},
+      {n:'Gary (Champion)', t:'Mixed', p:[['Pidgeot',['Normal','Flying'],61],['Alakazam',['Psychic'],59],['Rhydon',['Ground','Rock'],61],['Exeggutor',['Grass','Psychic'],61],['Charizard',['Fire','Flying'],65]]},
+    ],
+    2: [ // Johto
+      {n:'Will',    t:'Psychic',  p:[['Xatu',['Psychic','Flying'],76],['Xatu',['Psychic','Flying'],76],['Slowbro',['Water','Psychic'],78],['Jynx',['Ice','Psychic'],78],['Exeggutor',['Grass','Psychic'],80]]},
+      {n:'Koga',    t:'Poison',   p:[['Ariados',['Bug','Poison'],80],['Venomoth',['Bug','Poison'],80],['Forretress',['Bug','Steel'],80],['Muk',['Poison'],80],['Crobat',['Poison','Flying'],84]]},
+      {n:'Bruno',   t:'Fighting', p:[['Hitmontop',['Fighting'],86],['Hitmonlee',['Fighting'],86],['Hitmonchan',['Fighting'],86],['Onix',['Rock','Ground'],86],['Machamp',['Fighting'],86]]},
+      {n:'Karen',   t:'Dark',     p:[['Umbreon',['Dark'],84],['Vileplume',['Grass','Poison'],84],['Gengar',['Ghost','Poison'],86],['Murkrow',['Dark','Flying'],86],['Houndoom',['Dark','Fire'],88]]},
+      {n:'Lance (Champion)', t:'Dragon', p:[['Gyarados',['Water','Flying'],86],['Aerodactyl',['Rock','Flying'],87],['Dragonite',['Dragon','Flying'],88],['Dragonite',['Dragon','Flying'],89],['Dragonite',['Dragon','Flying'],90]]},
+    ],
+  };
+
+  const TYPE_BOOST_ITEMS = {
+    charcoal:'Fire', 'mystic water':'Water', 'miracle seed':'Grass', magnet:'Electric',
+    nevermeltice:'Ice', 'nevermelt ice':'Ice', 'never-melt ice':'Ice', 'black belt':'Fighting',
+    'poison barb':'Poison', 'soft sand':'Ground', 'sharp beak':'Flying', 'twisted spoon':'Psychic',
+    silverpowder:'Bug', 'silver powder':'Bug', 'hard stone':'Rock', 'spell tag':'Ghost',
+    'dragon fang':'Dragon', 'black glasses':'Dark', 'metal coat':'Steel', 'silk scarf':'Normal',
+    'fairy feather':'Fairy',
+  };
+  const TYPE_BOOST_MULT = 1.4;  // Charcoal etc: +40%
+
+
+  const CRIT_MULT = 2;
+  function critExpectedMult(prob) { return 1 + prob * (CRIT_MULT - 1); }
+
+
+  const KNOWN_COMBAT_ITEMS = new Set([
+    ...Object.keys(TYPE_BOOST_ITEMS),
+    'life orb', 'choice band', 'choice specs', 'expert belt', 'wide lens',
+    'leftovers', 'shell bell', 'assault vest', 'eviolite', 'rocky helmet',
+    'focus sash', 'air balloon', 'metronome',
+    "king's rock", 'kings rock', 'scope lens', 'quick claw',
+  ]);
+
+  function applyItemEffects(item, atk, dealtAvg, takenAvg) {
+    const key = (item || '').toLowerCase();
+    if (!key) return { dealtAvg, takenAvg, note: '' };
+    const notes = [];
+    const takenBefore = takenAvg;
+
+    const boostType = TYPE_BOOST_ITEMS[key];
+    if (boostType && boostType === atk) { dealtAvg *= TYPE_BOOST_MULT; notes.push('+40% dmg'); }
+    else if (key === 'life orb') { dealtAvg *= 1.3; notes.push('+30% dmg'); }
+    else if (key === 'choice band') { dealtAvg *= 1.5; notes.push('+50% dmg (unconfirmed)'); }
+
+    else if (key === 'choice specs') { dealtAvg *= 1.3; notes.push('+30% dmg (special)'); }
+
+    else if (key === 'wide lens') { dealtAvg *= 1.2; notes.push('+20% dmg'); }
+
+    else if (key === 'metronome') { dealtAvg *= 1.2; notes.push('+20% dmg'); }
+    else if (key === "king's rock" || key === 'kings rock') {
+      dealtAvg *= critExpectedMult(0.3); notes.push('+30% crit chance (assumes crit x2)');
+    }
+    else if (key === 'scope lens') {
+      dealtAvg *= critExpectedMult(0.3); notes.push('+30% crit chance (assumes crit x2, unconfirmed)');
+    }
+
+
+    if (key === 'expert belt' && dealtAvg >= 2) { dealtAvg *= 2; notes.push('+100% (SE)'); }
+
+
+    if (key === 'leftovers')          { takenAvg *= 0.90; }
+    else if (key === 'shell bell')    { takenAvg = Math.max(0, takenAvg - dealtAvg * 0.15); }
+    else if (key === 'assault vest')  { takenAvg *= 0.7; }
+
+    else if (key === 'eviolite')      { takenAvg *= 0.67; }
+    else if (key === 'rocky helmet')  { takenAvg *= 0.90; notes.push('12% max HP recoil to attacker on contact'); }
+    else if (key === 'focus sash')    { notes.push('survives 1 hit, not factored into the number'); }
+    else if (key === 'air balloon')   { notes.push('immune to first Ground hit, not factored into the number'); }
+    else if (key === 'quick claw')    { takenAvg *= 0.90; notes.push('50% move-first chance, rough estimate'); }
+
+    if (takenBefore > 0 && takenAvg < takenBefore - 0.001) {
+      const pct = Math.round((1 - takenAvg / takenBefore) * 100);
+      if (pct > 0) notes.push(`-${pct}% taken`);
+    }
+
+    return { dealtAvg, takenAvg, note: notes.join(' · ') };
+  }
+
+  function computeE4Order(chart, team, e4) {
+    if (!chart || !team.length || !e4 || !e4.length) return null;
+
+    const foeSeq = [];
+    e4.forEach(trainer => {
+      trainer.p.forEach(([foeName, foeTypes, foeLevel]) => {
+        foeSeq.push({ trainerName: trainer.n, foeName, foeTypes, foeLevel });
+      });
+    });
+    if (!foeSeq.length) return null;
+
+    const itemPool = team.map(p => p.item).filter(it => it && KNOWN_COMBAT_ITEMS.has(it.toLowerCase()));
+    const usedMons  = new Set();
+    const usedItems = new Array(itemPool.length).fill(false);
+    const assignments = [];
+
+    const stickyItems = new Map();
+    team.forEach((p, idx) => {
+      if (p.item && !KNOWN_COMBAT_ITEMS.has(p.item.toLowerCase())) stickyItems.set(idx, p.item);
+    });
+
+    const scoreFor = (p, item, foe) => {
+      let atk = (p.attackTypes && p.attackTypes[0]) || p.types[0];
+
+      if ((item || '').toLowerCase() === 'metronome' && p.types && p.types.length > 1) {
+        atk = p.types[1];
+      }
+      let dealt = eff(chart, atk, foe.foeTypes);
+      let taken = eff(chart, foe.foeTypes[0], p.types); // ataca con su primer tipo
+      if (foe.foeLevel) {
+        const diff = (p.level || 1) - foe.foeLevel;
+        const lvFactor = Math.min(1.5, Math.max(0.5, 1 + diff * 0.02));
+        dealt *= lvFactor;
+        taken /= lvFactor;
+      }
+
+      const fx = applyItemEffects(item, atk, dealt, taken);
+      return { dealtAvg: fx.dealtAvg, takenAvg: fx.takenAvg, score: fx.dealtAvg * 0.4 - fx.takenAvg * 0.6, itemNote: fx.note };
+    };
+
+    const SCORE_EPS = 1e-9;
+    const bestOptionFor = (p, idx, foe) => {
+      const sNo = scoreFor(p, null, foe);
+      let opt = { idx, itemIdx: -1, item: null, ...sNo };
+      itemPool.forEach((it, ii) => {
+        if (usedItems[ii]) return;
+        const s2 = scoreFor(p, it, foe);
+        const betterOrTiedAndUnequipped = opt.itemIdx === -1 && s2.score >= opt.score - SCORE_EPS;
+        if (s2.score > opt.score || betterOrTiedAndUnequipped) opt = { idx, itemIdx: ii, item: it, ...s2 };
+      });
+      return opt;
+    };
+
+    // One team slot per rival mon, until we run out of Pokémon (after that
+    // there isn't much left to plan in detail).
+    const steps = Math.min(team.length, foeSeq.length);
+    for (let i = 0; i < steps; i++) {
+      const foe = foeSeq[i];
+      let best = null;
+      team.forEach((p, idx) => {
+        if (usedMons.has(idx)) return;
+        const opt = bestOptionFor(p, idx, foe);
+        if (!best || opt.score > best.score) best = opt;
+      });
+      usedMons.add(best.idx);
+      if (best.itemIdx >= 0) usedItems[best.itemIdx] = true;
+      let suggestedItem = best.item, itemNote = best.itemNote;
+      if (best.itemIdx < 0 && stickyItems.has(best.idx)) {
+        suggestedItem = stickyItems.get(best.idx);
+        itemNote = 'kept - effect not modeled by this tool';
+      }
+      assignments.push({
+        trainerName: foe.trainerName, foeName: foe.foeName, member: team[best.idx],
+        suggestedItem, dealtAvg: best.dealtAvg, takenAvg: best.takenAvg, itemNote,
+      });
+    }
+
+    const backupIdx = team.map((_, i) => i).filter(i => !usedMons.has(i));
+    const leftoverItems = itemPool.filter((_, ii) => !usedItems[ii]);
+    const backupAssignments = backupIdx.map((i, pos) => ({
+      member: team[i], item: leftoverItems[pos] || stickyItems.get(i) || null,
+    }));
+
+    return { assignments, backups: backupAssignments, totalFoes: foeSeq.length };
+  }
 
   // DATOS DE ESPECIE (para modo Endless)
   function getSpeciesTypes(id) {
@@ -191,32 +410,65 @@
   // De donde sale la cobertura (ataques reales o STAB), para mostrarlo en el panel.
   let ATTACK_SOURCE = 'types';
 
+  function buildFromSave(p) {
+    const live  = (p._uid != null && LIVE_MONS.get(p._uid)) || p;
+    const name  = live.name || live.nickname || p.name || '?';
+    const types = (Array.isArray(live.types) ? live.types : p.types || ['Normal']).map(norm);
+
+    let moveType = getMoveTypeViaGame(live);
+    if (!moveType && live !== p) moveType = getMoveTypeViaGame(p);
+    if (!moveType) moveType = getMoveTypeFromDOM(name);
+    const attackTypes = moveType ? [moveType] : types;
+    const atkSrc      = moveType ? 'game' : 'stab';
+
+    const item = normItem(live.item) || normItem(live.heldItem) || normItem(live.equippedItem) || normItem(p.item);
+
+    return {
+      name, types, attackTypes, atkSrc, item,
+      shiny: live.isShiny ?? p.isShiny,
+      level: live.level || p.level || 1,
+      hp:    live.currentHp ?? p.currentHp ?? live.maxHp ?? p.maxHp ?? 1,
+      maxHp: live.maxHp || p.maxHp || 1,
+    };
+  }
+
   function getTeam(run) {
     const srcSeen = new Set();
-    const team = (run.team || []).map(p => {
-      // Objeto EN VIVO capturado del juego (move/HP frescos); si no, el save.
-      const live  = (p._uid != null && LIVE_MONS.get(p._uid)) || p;
-      const name  = live.name || live.nickname || p.name || '?';
-      const types = (Array.isArray(live.types) ? live.types : p.types || ['Normal']).map(norm);
+    const saveTeam = (run.team || []).map(buildFromSave);
+    const domTeam = getTeamFromDOM();
+    let team;
+    if (domTeam && domTeam.length) {
+      const saveLeft = saveTeam.slice(); // se van consumiendo a medida que matcheamos por nombre
+      team = domTeam.map(d => {
+        const idx = saveLeft.findIndex(s => s.name.toLowerCase() === d.name.toLowerCase());
+        const matched = idx >= 0 ? saveLeft.splice(idx, 1)[0] : null;
 
-      // Cobertura ofensiva: ataque real (objeto vivo - save - carta DOM) - STAB.
-      let moveType = getMoveTypeViaGame(live);
-      if (!moveType && live !== p) moveType = getMoveTypeViaGame(p);   // probar el save
-      if (!moveType) moveType = getMoveTypeFromDOM(name);              // carta en pantalla
-      const attackTypes = moveType ? [moveType] : types;
-      const atkSrc      = moveType ? 'game' : 'stab';                  // stab = no detectado
-      srcSeen.add(atkSrc);
+        if (matched) {
+          srcSeen.add(matched.atkSrc);
+          return {
+            ...matched,
+            level: d.level || matched.level,          // el team-bar es el nivel más fresco
+            hp:    Math.round((d.hpPct / 100) * matched.maxHp) || matched.hp,
+            item:  matched.item || d.item,             // preferimos lo leído del objeto vivo si lo hay
+          };
+        }
 
-      return {
-        name, types, attackTypes, atkSrc,
-        shiny: live.isShiny ?? p.isShiny,
-        level: live.level || p.level || 1,
-        hp:    live.currentHp ?? p.currentHp ?? live.maxHp ?? p.maxHp ?? 1,
-        maxHp: live.maxHp || p.maxHp || 1,
-      };
-    });
+        // Pokémon nuevo que el save todavía no tiene: no sabemos su tipo real
+        // hasta que aparezca en el save, probamos el pokedex por nombre.
+        const types = getSpeciesTypesByName(d.name) || ['Normal'];
+        srcSeen.add('unknown');
+        return {
+          name: d.name, types, attackTypes: types, atkSrc: 'unknown', item: d.item,
+          shiny: false, level: d.level, hp: d.hpPct, maxHp: 100,
+        };
+      });
+    } else {
+      // Sin team-bar en pantalla (otra vista del juego): al camino de siempre.
+      team = saveTeam;
+      saveTeam.forEach(p => srcSeen.add(p.atkSrc));
+    }
 
-    ATTACK_SOURCE = srcSeen.has('game') ? 'moves' : 'types (STAB)';
+    ATTACK_SOURCE = srcSeen.has('game') ? 'moves' : (srcSeen.has('unknown') ? 'types (algunos sin confirmar)' : 'types (STAB)');
     return team;
   }
 
@@ -270,8 +522,7 @@
     if (chart && team.length) {
       const allTypes = Object.keys(chart);
 
-      // Detalle defensivo por Pokémon (para el hover). x0 y x1/4 van juntos como
-      // "struggle" porque el juego los trata igual.
+      // Detalle defensivo por Pokémon (para el hover). x0 y x1/4 van juntos como "struggle" porque el juego los trata igual.
       team.forEach(p => {
         const weak = [], resist = [], struggle = [];
         allTypes.forEach(atk => {
@@ -293,10 +544,6 @@
 
       // Cobertura: ofensivo - usa los ataques reales, y guarda cuál da el hit.
       allTypes.forEach(def => {
-        // Guardamos TODOS los ataques que empatan en el mejor multiplicador,
-        // no solo el primero (si no, un empate x2 entre dos tipos ocultaba
-        // por completo la cobertura del segundo, ej: Poison vs Grass cuando
-        // ya había Fire, o Dragon vs Dragon cuando ya había Ice).
         let best = 1, by = [];
         attackTypes.forEach(a => {
           const m = eff(chart, a, [def]);
@@ -308,8 +555,27 @@
       coverage.sort((a, b) => b.best - a.best);
     }
 
+    // Orden sugerido: en run normal, cuando ya sacaste las 8 medallas, para toda la Elite Four (datos fijos). En modo Tower (endless), para los jefes que ya se ven en pantalla (datos reales leídos del save) -esto
+    // incluye automáticamente al líder final de la etapa cuando entra en la ventana visible, sin necesidad de casos especiales.
+    let e4Order = null;
+    if (chart && team.length) {
+      if (mode === 'run') {
+        const gymCount = (GYMS[gen] || GYMS[1]).length;
+        if ((run.badges || 0) >= gymCount && ELITE4[gen]) {
+          e4Order = computeE4Order(chart, team, ELITE4[gen]);
+        }
+      } else if (mode === 'endless' && bosses.length) {
+        // No hay nivel por-mon en el save de Tower, solo el del trainer
+        // (displayLevel) - se lo asignamos a todos sus mons como aproximación.
+        const trainerList = bosses
+          .map(b => ({ n: b.name, p: (b.team || []).filter(m => m.types && m.types.length).map(m => [m.name, m.types, b.level || null]) }))
+          .filter(t => t.p.length); // ignora jefes cuyos tipos todavía no cargaron
+        if (trainerList.length) e4Order = computeE4Order(chart, team, trainerList);
+      }
+    }
+
     return { team, weaknesses, coverage, bosses, mode, gen,
-             hasChart: !!chart, attackTypes, attackSource: ATTACK_SOURCE };
+             hasChart: !!chart, attackTypes, attackSource: ATTACK_SOURCE, e4Order };
   }
 
   //ESTILOS 
@@ -405,7 +671,7 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
   }
 
   // RENDER
-  function render({ team, weaknesses, coverage, bosses, mode, gen, hasChart, attackTypes = [], attackSource = 'tipos' }) {
+  function render({ team, weaknesses, coverage, bosses, mode, gen, hasChart, attackTypes = [], attackSource = 'tipos', e4Order = null }) {
     const chart = getChart();
     let h = '';
 
@@ -523,6 +789,40 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
       });
     }
     h += `</div>`;
+
+    // Suggested order for Elite Four/Tower - no healing or swaps between fights, so each rival mon gets the best free Pokémon (greedy) and the rest is backup. This is a type-based estimate, not a real simulation.
+    if (e4Order) {
+      const secTtl  = mode === 'endless' ? '▶ TOWER - SUGGESTED ORDER + ITEMS' : '▶ ELITE FOUR - SUGGESTED ORDER + ITEMS';
+      const secDesc = mode === 'endless'
+        ? 'for the next bosses visible - reassigns items from the pool - doesn\'t replace testing it in-game'
+        : 'reassigns the items you already have equipped to whoever benefits most - doesn\'t replace testing it in-game';
+      h += `<div class="pca-sec"><div class="pca-ttl">${secTtl}</div>`;
+      h += `<div class="pca-dim" style="font-size:5px;margin-bottom:3px">${secDesc}</div>`;
+      let lastTrainer = null;
+      e4Order.assignments.forEach((a, i) => {
+        if (a.trainerName !== lastTrainer) {
+          h += `<div class="pca-dim" style="font-size:5px;margin-top:2px">— ${a.trainerName} —</div>`;
+          lastTrainer = a.trainerName;
+        }
+        const cls = a.takenAvg <= 1 ? 'pca-ok' : a.takenAvg >= 2 ? 'pca-bad' : 'pca-warn';
+        const itemTxt = a.suggestedItem
+          ? ` <span class="pca-dim" style="font-size:5px">[${a.suggestedItem}${a.itemNote ? ' · ' + a.itemNote : ''}]</span>`
+          : ` <span class="pca-dim" style="font-size:5px">[no item]</span>`;
+        h += `<div class="pca-row">
+          <span>${i + 1}. <b>${a.member.name}</b>${itemTxt} <span class="pca-dim">vs ${a.foeName}</span></span>
+          <span class="${cls}" style="font-size:5px">deals x${a.dealtAvg.toFixed(1)} / takes x${a.takenAvg.toFixed(1)}</span>
+        </div>`;
+      });
+      if (e4Order.totalFoes > e4Order.assignments.length) {
+        h += `<div class="pca-dim" style="font-size:5px;margin-top:2px">(${e4Order.totalFoes - e4Order.assignments.length} more rival(s) left with no team member assigned - order repeats from #1)</div>`;
+      }
+      if (e4Order.backups.length) {
+        const bkTxt = e4Order.backups.map(b => b.item ? `${b.member.name} [${b.item}]` : b.member.name).join(' → ');
+        h += `<div class="pca-dim" style="font-size:5px;margin-top:3px">backup: ${bkTxt}</div>`;
+      }
+      h += `</div>`;
+    }
+
     return h;
   }
 
@@ -554,7 +854,7 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
     panel.appendChild(ts);
     document.body.appendChild(panel);
 
-    // Toggle de "próximos jefes" (delegación: sobrevive a los re-render).
+    // Toggle
     bodyEl.addEventListener('click', e => {
       const tg = e.target.closest && e.target.closest('#pca-boss-tog');
       if (!tg) return;
@@ -563,8 +863,7 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
       try { updatePanel(analyze(), true); } catch (_) {}
     });
 
-    // Pausar el refresco mientras el mouse está sobre un Pokémon, para que el
-    // panel de debilidades (hover) no se destruya en cada actualización.
+    // Pausar el refresco mientras el mouse está sobre un Pokémon, para que el panel de debilidades (hover) no se destruya en cada actualización.
     bodyEl.addEventListener('mouseover', e => {
       if (e.target.closest && e.target.closest('.pca-mon')) hovering = true;
     });
@@ -612,9 +911,6 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
     hdr.addEventListener('mousedown', e => {
       if (e.target.tagName === 'BUTTON') return;
       drag = true;
-      // Fija left/top a la posición visual actual ANTES de tocar right,
-      // si no el navegador recoloca el panel al borrar right y el offset
-      // calculado con el valor viejo queda mal (el panel "salta").
       const rect = panel.getBoundingClientRect();
       panel.style.left  = rect.left + 'px';
       panel.style.top   = rect.top + 'px';
@@ -641,11 +937,12 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
   function dataSig(d) {
     try {
       return JSON.stringify([
-        d.team.map(p => [p.name, p.level, p.hp, p.maxHp, p.types, p.attackTypes]),
+        d.team.map(p => [p.name, p.level, p.hp, p.maxHp, p.types, p.attackTypes, p.item]),
         d.weaknesses.map(w => w.type),
         d.coverage.map(c => [c.by, c.type, c.best]),
         d.bosses.map(b => [b.name, b.current, b.team.map(m => [m.name, m.types])]),
         d.attackSource, d.mode, d.gen, d.hasChart,
+        d.e4Order ? d.e4Order.assignments.map(a => [a.trainerName, a.foeName, a.member && a.member.name, a.suggestedItem]) : null,
       ]);
     } catch (_) { return 'x' + Math.random(); }
   }
@@ -663,8 +960,6 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
     if (ts) ts.textContent = 'upd. ' + new Date().toLocaleTimeString();
   }
 
-  // El texto de las cartas está en español; el tipo real está en la clase del
-  // badge (type-water, etc.), así que lo leemos de ahí.
   const TYPE_CLASS = {
     normal:'Normal', fire:'Fire', water:'Water', electric:'Electric', grass:'Grass',
     ice:'Ice', fighting:'Fighting', poison:'Poison', ground:'Ground', flying:'Flying',
@@ -770,7 +1065,7 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
       if (lostCov.length)    html += `<div class="row"><span class="lbl b">−cov:</span>${lostCov.map(chip).join('')}</div>`;
       if (holesGone.length)  html += `<div class="row"><span class="lbl g">plugs:</span>${holesGone.map(chip).join('')}</div>`;
       if (holesAdded.length) html += `<div class="row"><span class="lbl b">opens:</span>${holesAdded.map(chip).join('')}</div>`;
-      if (!html) return;   // no change - don't annotate
+      if (!html) return;  
 
       const el = document.createElement('div');
       el.className = 'pca-catch';
@@ -779,16 +1074,29 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
     });
   }
 
-  // CICLO DE ACTUALIZACIÓN 
+  // Corre las dos anotaciones de pantalla (captura/swap). Son baratas cada una corta al toque si no encuentra su contenedor, y si ya anotó la misma firma de cartas no vuelve a tocar el DOM- así que se pueden llamar seguido.
+  function runAnnotations() {
+    try { annotateCatchChoices(); }
+    catch (e) { console.error('[PCA] catch-screen error:', e); }
+    try { annotateSwapScreen(); }
+    catch (e) { console.error('[PCA] swap-screen error:', e); }
+  }
+
+  let annotateQueued = false;
+  function scheduleAnnotations() {
+    if (annotateQueued) return;
+    annotateQueued = true;
+    requestAnimationFrame(() => { annotateQueued = false; runAnnotations(); });
+  }
+  const domObserver = new MutationObserver(scheduleAnnotations);
+
+  // CICLO DE ACTUALIZACIÓN
   let timer = null;
   function tick() {
     if (!liveHookInstalled) installLiveHook();   // retry until the function exists
     try { updatePanel(analyze()); }
     catch (e) { console.error('[PCA] tick error (panel still alive):', e); }
-    try { annotateCatchChoices(); }
-    catch (e) { console.error('[PCA] catch-screen error:', e); }
-    try { annotateSwapScreen(); }
-    catch (e) { console.error('[PCA] swap-screen error:', e); }
+    runAnnotations();   // respaldo, por si algún cambio se escapó del observer
     clearTimeout(timer);
     timer = setTimeout(tick, 2500);
   }
@@ -799,6 +1107,8 @@ body.dark-mode #tm-pca{box-shadow:3px 3px 0 #000}
     injectStyles();
     createPanel();
     installLiveHook();
+    domObserver.observe(document.body, { childList: true, subtree: true });
+    scheduleAnnotations();
     tick();
   }
 
