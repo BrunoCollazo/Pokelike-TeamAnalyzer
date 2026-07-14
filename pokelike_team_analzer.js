@@ -135,7 +135,7 @@
       const item = itemImg && itemImg.alt ? itemImg.alt.trim() : null;
       return { name, level, hpPct, item };
     });
-  }.
+  }
   function getSpeciesTypesByName(name) {
     const dex = window.__POKEDEX__;
     if (!dex || !name) return null;
